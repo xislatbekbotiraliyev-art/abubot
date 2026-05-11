@@ -2,6 +2,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
+from aiogram.fsm.context import FSMContext
 
 from database.db import get_movie, get_all_channels, is_admin
 from services.subscription import check_user_subscriptions

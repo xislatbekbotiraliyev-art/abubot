@@ -1,17 +1,34 @@
-from typing import List
+from typing import List, Tuple
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def get_subscription_keyboard(channels: List[str], movie_code: str) -> InlineKeyboardMarkup:
-    """Create inline keyboard with channel subscription buttons"""
+def get_subscription_keyboard(channels: List[Tuple[str, str, str]], movie_code: str) -> InlineKeyboardMarkup:
+    """
+    Create inline keyboard with channel subscription buttons
+    channels: List of (channel_id, username, title) tuples
+    """
     buttons = []
     
     # Add button for each channel
     for channel in channels:
+        channel_id, username, title = channel
+        display_name = title if title else (username if username else "Kanal")
+        
+        # Create URL for the button
+        if username:
+            # Public channel with username
+            url = f"https://t.me/{username.lstrip('@')}"
+        elif channel_id.startswith('-100'):
+            # Public channel with ID (convert to link format)
+            url = f"https://t.me/c/{channel_id[4:]}/1"
+        else:
+            # Fallback
+            url = f"https://t.me/{channel_id.lstrip('@')}"
+        
         buttons.append([
             InlineKeyboardButton(
-                text=f"➕ {channel} ga obuna bo'lish",
-                url=f"https://t.me/{channel.lstrip('@')}"
+                text=f"➕ {display_name}",
+                url=url
             )
         ])
     

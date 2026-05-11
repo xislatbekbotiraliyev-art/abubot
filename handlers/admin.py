@@ -24,12 +24,12 @@ class AddMovieStates(StatesGroup):
 
 class AddChannelState(StatesGroup):
     """State for adding channel"""
-    username = State()
+    channel_input = State()
 
 
 class RemoveChannelState(StatesGroup):
     """State for removing channel"""
-    username = State()
+    channel_id = State()
 
 
 class DeleteMovieState(StatesGroup):
@@ -115,36 +115,103 @@ async def btn_add_channel(message: Message, state: FSMContext):
         await message.answer("❌ Sizda admin huquqi yo'q")
         return
     
-    await state.set_state(AddChannelState.username)
+    await state.set_state(AddChannelState.channel_input)
     await message.answer(
         "📢 Kanal qo'shish\n\n"
-        "Kanal username ini yuboring (@ bilan yoki @ siz):",
+        "Kanal username ini (@username) yoki kanal linkini (https://t.me/...) yuboring:\n\n"
+        "Misol:\n"
+        "• @mykanalim\n"
+        "• https://t.me/mykanalim\n"
+        "• https://t.me/+AbCdEfGhIjK (maxfiy kanal)",
         reply_markup=get_cancel_keyboard()
     )
 
 
-@router.message(AddChannelState.username)
-async def process_add_channel_username(message: Message, state: FSMContext):
-    """Process channel username for adding"""
-    username = message.text.strip()
+@router.message(AddChannelState.channel_input)
+async def process_add_channel_input(message: Message, state: FSMContext):
+    """Process channel username or link for adding"""
+    channel_input = message.text.strip()
     
-    # Ensure username starts with @
-    if not username.startswith('@'):
-        username = '@' + username
+    # Parse channel input
+    channel_id = None
+    username = None
+    title = None
     
-    success = add_channel(username)
-    await state.clear()
-    
-    if success:
+    try:
+        # Check if it's a link
+        if 't.me/' in channel_input or 'telegram.me/' in channel_input:
+            # Extract channel identifier from link
+            if 't.me/+' in channel_input or 'telegram.me/+' in channel_input:
+                # Private channel link - extract invite hash
+                channel_id = channel_input.split('+')[1].split('?')[0].split('/')[0]
+                # For private channels, we need to get chat info
+                try:
+                    chat = await message.bot.get_chat(channel_input)
+                    channel_id = str(chat.id)
+                    title = chat.title
+                    username = chat.username if chat.username else None
+                except Exception as e:
+                    await message.answer(
+                        f"❌ Kanal ma'lumotlarini olishda xatolik:\n{str(e)}\n\n"
+                        "Bot kanalga admin sifatida qo'shilganligiga ishonch hosil qiling!",
+                        reply_markup=get_admin_keyboard()
+                    )
+                    await state.clear()
+                    return
+            else:
+                # Public channel link
+                username = channel_input.split('t.me/')[-1].split('telegram.me/')[-1].split('?')[0].split('/')[0]
+                if not username.startswith('@'):
+                    username = '@' + username
+                channel_id = username
+        else:
+            # Username format
+            if not channel_input.startswith('@'):
+                channel_input = '@' + channel_input
+            username = channel_input
+            channel_id = username
+        
+        # Get channel info to verify and get title
+        if not title:
+            try:
+                chat = await message.bot.get_chat(channel_id)
+                title = chat.title
+                if not username and chat.username:
+                    username = '@' + chat.username
+            except Exception as e:
+                await message.answer(
+                    f"❌ Kanal ma'lumotlarini olishda xatolik:\n{str(e)}\n\n"
+                    "Bot kanalga admin sifatida qo'shilganligiga ishonch hosil qiling!",
+                    reply_markup=get_admin_keyboard()
+                )
+                await state.clear()
+                return
+        
+        # Add channel to database
+        success = add_channel(channel_id, username, title)
+        await state.clear()
+        
+        if success:
+            display_name = title if title else (username if username else channel_id)
+            await message.answer(
+                f"✅ Kanal muvaffaqiyatli qo'shildi!\n\n"
+                f"📢 Nomi: {display_name}\n"
+                f"🆔 ID: <code>{channel_id}</code>",
+                parse_mode='HTML',
+                reply_markup=get_admin_keyboard()
+            )
+        else:
+            await message.answer(
+                f"❌ Bu kanal allaqachon mavjud",
+                reply_markup=get_admin_keyboard()
+            )
+    except Exception as e:
+        logger.error(f"Error adding channel: {e}")
         await message.answer(
-            f"✅ {username} kanali muvaffaqiyatli qo'shildi",
+            f"❌ Xatolik yuz berdi: {str(e)}",
             reply_markup=get_admin_keyboard()
         )
-    else:
-        await message.answer(
-            f"❌ {username} kanali allaqachon mavjud",
-            reply_markup=get_admin_keyboard()
-        )
+        await state.clear()
 
 
 @router.message(F.text == "❌ Kanal o'chirish")
@@ -159,36 +226,33 @@ async def btn_remove_channel(message: Message, state: FSMContext):
         await message.answer("📝 Hali kanallar qo'shilmagan", reply_markup=get_admin_keyboard())
         return
     
-    channels_list = "\n".join([f"• {ch}" for ch in channels])
-    await state.set_state(RemoveChannelState.username)
+    channels_list = "\n".join([f"• {ch[2] if ch[2] else (ch[1] if ch[1] else ch[0])} - <code>{ch[0]}</code>" for ch in channels])
+    await state.set_state(RemoveChannelState.channel_id)
     await message.answer(
         f"❌ Kanal o'chirish\n\n"
         f"Qaysi kanalni o'chirmoqchisiz?\n\n{channels_list}\n\n"
-        f"Kanal username ini yuboring:",
+        f"Kanal ID sini yuboring:",
+        parse_mode='HTML',
         reply_markup=get_cancel_keyboard()
     )
 
 
-@router.message(RemoveChannelState.username)
-async def process_remove_channel_username(message: Message, state: FSMContext):
-    """Process channel username for removal"""
-    username = message.text.strip()
+@router.message(RemoveChannelState.channel_id)
+async def process_remove_channel_id(message: Message, state: FSMContext):
+    """Process channel ID for removal"""
+    channel_id = message.text.strip()
     
-    # Ensure username starts with @
-    if not username.startswith('@'):
-        username = '@' + username
-    
-    success = remove_channel(username)
+    success = remove_channel(channel_id)
     await state.clear()
     
     if success:
         await message.answer(
-            f"✅ {username} kanali muvaffaqiyatli o'chirildi",
+            f"✅ Kanal muvaffaqiyatli o'chirildi",
             reply_markup=get_admin_keyboard()
         )
     else:
         await message.answer(
-            f"❌ {username} kanali topilmadi",
+            f"❌ Kanal topilmadi",
             reply_markup=get_admin_keyboard()
         )
 
@@ -206,9 +270,15 @@ async def btn_list_channels(message: Message):
         await message.answer("📝 Hali kanallar qo'shilmagan", reply_markup=get_admin_keyboard())
         return
     
-    channels_list = "\n".join([f"• {ch}" for ch in channels])
+    channels_list = "\n\n".join([
+        f"📢 {ch[2] if ch[2] else (ch[1] if ch[1] else 'Noma\'lum')}\n"
+        f"   🆔 ID: <code>{ch[0]}</code>\n"
+        f"   👤 Username: {ch[1] if ch[1] else 'Yo\'q'}"
+        for ch in channels
+    ])
     await message.answer(
         f"📝 Majburiy kanallar ({len(channels)} ta):\n\n{channels_list}",
+        parse_mode='HTML',
         reply_markup=get_admin_keyboard()
     )
 
@@ -229,14 +299,17 @@ async def btn_check_bot(message: Message):
     result = "🔍 Bot holati:\n\n"
     
     for channel in channels:
+        channel_id, username, title = channel
+        display_name = title if title else (username if username else channel_id)
+        
         try:
-            bot_member = await message.bot.get_chat_member(chat_id=channel, user_id=message.bot.id)
+            bot_member = await message.bot.get_chat_member(chat_id=channel_id, user_id=message.bot.id)
             if bot_member.status in ['administrator', 'creator']:
-                result += f"✅ {channel} - Admin\n"
+                result += f"✅ {display_name} - Admin\n"
             else:
-                result += f"❌ {channel} - Admin emas\n"
+                result += f"❌ {display_name} - Admin emas\n"
         except Exception as e:
-            result += f"❌ {channel} - Xatolik: {str(e)[:50]}\n"
+            result += f"❌ {display_name} - Xatolik: {str(e)[:50]}\n"
     
     result += f"\n💡 Bot ID: {message.bot.id}"
     await message.answer(result, reply_markup=get_admin_keyboard())
@@ -463,23 +536,66 @@ async def cmd_add_channel(message: Message):
     
     if len(args) < 2:
         await message.answer(
-            "Foydalanish: /add_channel <username>\n\n"
-            "Misol: /add_channel @mykanalim"
+            "Foydalanish: /add_channel <username yoki link>\n\n"
+            "Misol:\n"
+            "/add_channel @mykanalim\n"
+            "/add_channel https://t.me/mykanalim"
         )
         return
     
-    username = args[1].strip()
+    channel_input = args[1].strip()
     
-    # Ensure username starts with @
-    if not username.startswith('@'):
-        username = '@' + username
+    # Parse channel input
+    channel_id = None
+    username = None
+    title = None
     
-    success = add_channel(username)
-    
-    if success:
-        await message.answer(f"✅ {username} kanali muvaffaqiyatli qo'shildi")
-    else:
-        await message.answer(f"❌ {username} kanali allaqachon mavjud")
+    try:
+        # Check if it's a link
+        if 't.me/' in channel_input or 'telegram.me/' in channel_input:
+            if 't.me/+' in channel_input or 'telegram.me/+' in channel_input:
+                # Private channel
+                try:
+                    chat = await message.bot.get_chat(channel_input)
+                    channel_id = str(chat.id)
+                    title = chat.title
+                    username = chat.username if chat.username else None
+                except Exception as e:
+                    await message.answer(f"❌ Xatolik: {str(e)}")
+                    return
+            else:
+                # Public channel
+                username = channel_input.split('t.me/')[-1].split('telegram.me/')[-1].split('?')[0].split('/')[0]
+                if not username.startswith('@'):
+                    username = '@' + username
+                channel_id = username
+        else:
+            # Username
+            if not channel_input.startswith('@'):
+                channel_input = '@' + channel_input
+            username = channel_input
+            channel_id = username
+        
+        # Get channel info
+        if not title:
+            try:
+                chat = await message.bot.get_chat(channel_id)
+                title = chat.title
+                if not username and chat.username:
+                    username = '@' + chat.username
+            except Exception as e:
+                await message.answer(f"❌ Xatolik: {str(e)}")
+                return
+        
+        success = add_channel(channel_id, username, title)
+        
+        if success:
+            display_name = title if title else (username if username else channel_id)
+            await message.answer(f"✅ {display_name} kanali qo'shildi")
+        else:
+            await message.answer(f"❌ Kanal allaqachon mavjud")
+    except Exception as e:
+        await message.answer(f"❌ Xatolik: {str(e)}")
 
 
 @router.message(Command('remove_channel'))
@@ -489,23 +605,19 @@ async def cmd_remove_channel(message: Message):
     
     if len(args) < 2:
         await message.answer(
-            "Foydalanish: /remove_channel <username>\n\n"
+            "Foydalanish: /remove_channel <channel_id>\n\n"
             "Misol: /remove_channel @mykanalim"
         )
         return
     
-    username = args[1].strip()
+    channel_id = args[1].strip()
     
-    # Ensure username starts with @
-    if not username.startswith('@'):
-        username = '@' + username
-    
-    success = remove_channel(username)
+    success = remove_channel(channel_id)
     
     if success:
-        await message.answer(f"✅ {username} kanali muvaffaqiyatli o'chirildi")
+        await message.answer(f"✅ Kanal muvaffaqiyatli o'chirildi")
     else:
-        await message.answer(f"❌ {username} kanali topilmadi")
+        await message.answer(f"❌ Kanal topilmadi")
 
 
 @router.message(Command('list_channels'))
@@ -517,9 +629,15 @@ async def cmd_list_channels(message: Message):
         await message.answer("📝 Hali kanallar qo'shilmagan")
         return
     
-    channels_list = "\n".join([f"• {ch}" for ch in channels])
+    channels_list = "\n\n".join([
+        f"📢 {ch[2] if ch[2] else (ch[1] if ch[1] else 'Noma\'lum')}\n"
+        f"   🆔 ID: <code>{ch[0]}</code>\n"
+        f"   👤 Username: {ch[1] if ch[1] else 'Yo\'q'}"
+        for ch in channels
+    ])
     await message.answer(
-        f"📝 Majburiy kanallar ({len(channels)} ta):\n\n{channels_list}"
+        f"📝 Majburiy kanallar ({len(channels)} ta):\n\n{channels_list}",
+        parse_mode='HTML'
     )
 
 
@@ -536,14 +654,17 @@ async def cmd_check_bot(message: Message):
     result = "🔍 Bot holati:\n\n"
     
     for channel in channels:
+        channel_id, username, title = channel
+        display_name = title if title else (username if username else channel_id)
+        
         try:
-            bot_member = await message.bot.get_chat_member(chat_id=channel, user_id=message.bot.id)
+            bot_member = await message.bot.get_chat_member(chat_id=channel_id, user_id=message.bot.id)
             if bot_member.status in ['administrator', 'creator']:
-                result += f"✅ {channel} - Admin\n"
+                result += f"✅ {display_name} - Admin\n"
             else:
-                result += f"❌ {channel} - Admin emas\n"
+                result += f"❌ {display_name} - Admin emas\n"
         except Exception as e:
-            result += f"❌ {channel} - Xatolik: {str(e)[:50]}\n"
+            result += f"❌ {display_name} - Xatolik: {str(e)[:50]}\n"
     
     result += f"\n💡 Bot ID: {message.bot.id}"
     await message.answer(result)

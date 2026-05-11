@@ -54,7 +54,9 @@ def init_db():
         
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS channels (
-                username TEXT PRIMARY KEY
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                title TEXT
             )
         ''')
         
@@ -79,7 +81,9 @@ def init_db():
         
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS channels (
-                username TEXT PRIMARY KEY
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                title TEXT
             )
         ''')
         
@@ -152,31 +156,31 @@ def delete_movie(code: str) -> bool:
 
 
 # Channel operations
-def add_channel(username: str) -> bool:
+def add_channel(channel_id: str, username: str = None, title: str = None) -> bool:
     """Add a channel to database"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            'INSERT INTO channels (username) VALUES (%s)' if DB_TYPE == 'postgresql' else 'INSERT INTO channels (username) VALUES (?)',
-            (username,)
+            'INSERT INTO channels (id, username, title) VALUES (%s, %s, %s)' if DB_TYPE == 'postgresql' else 'INSERT INTO channels (id, username, title) VALUES (?, ?, ?)',
+            (channel_id, username, title)
         )
         conn.commit()
         conn.close()
         return True
     except Exception as e:
-        logger.warning(f"Channel {username} already exists or error: {e}")
+        logger.warning(f"Channel {channel_id} already exists or error: {e}")
         return False
 
 
-def remove_channel(username: str) -> bool:
+def remove_channel(channel_id: str) -> bool:
     """Remove a channel from database"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            'DELETE FROM channels WHERE username = %s' if DB_TYPE == 'postgresql' else 'DELETE FROM channels WHERE username = ?',
-            (username,)
+            'DELETE FROM channels WHERE id = %s' if DB_TYPE == 'postgresql' else 'DELETE FROM channels WHERE id = ?',
+            (channel_id,)
         )
         conn.commit()
         deleted = cursor.rowcount > 0
@@ -187,13 +191,13 @@ def remove_channel(username: str) -> bool:
         return False
 
 
-def get_all_channels() -> List[str]:
-    """Get all channels"""
+def get_all_channels() -> List[Tuple[str, str, str]]:
+    """Get all channels - returns list of (id, username, title)"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT username FROM channels')
-        channels = [row[0] for row in cursor.fetchall()]
+        cursor.execute('SELECT id, username, title FROM channels')
+        channels = cursor.fetchall()
         conn.close()
         return channels
     except Exception as e:
