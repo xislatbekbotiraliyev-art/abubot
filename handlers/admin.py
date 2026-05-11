@@ -142,18 +142,26 @@ async def process_add_channel_input(message: Message, state: FSMContext):
         if 't.me/' in channel_input or 'telegram.me/' in channel_input:
             # Extract channel identifier from link
             if 't.me/+' in channel_input or 'telegram.me/+' in channel_input:
-                # Private channel link - extract invite hash
-                channel_id = channel_input.split('+')[1].split('?')[0].split('/')[0]
-                # For private channels, we need to get chat info
+                # Private channel link - use the link itself as ID
+                channel_id = channel_input
+                username = None
+                title = None
+                
+                # Try to get chat info (will fail if bot is not admin)
                 try:
                     chat = await message.bot.get_chat(channel_input)
                     channel_id = str(chat.id)
                     title = chat.title
-                    username = chat.username if chat.username else None
+                    username = f"@{chat.username}" if chat.username else None
                 except Exception as e:
+                    logger.error(f"Cannot get private channel info: {e}")
                     await message.answer(
-                        f"❌ Kanal ma'lumotlarini olishda xatolik:\n{str(e)}\n\n"
-                        "Bot kanalga admin sifatida qo'shilganligiga ishonch hosil qiling!",
+                        f"❌ Maxfiy kanal ma'lumotlarini olishda xatolik!\n\n"
+                        f"Sabab: {str(e)}\n\n"
+                        f"Iltimos:\n"
+                        f"1. Botni kanalga admin qilib qo'shing\n"
+                        f"2. Bot 'View Members' huquqiga ega bo'lsin\n"
+                        f"3. Qaytadan urinib ko'ring",
                         reply_markup=get_admin_keyboard()
                     )
                     await state.clear()
@@ -176,12 +184,18 @@ async def process_add_channel_input(message: Message, state: FSMContext):
             try:
                 chat = await message.bot.get_chat(channel_id)
                 title = chat.title
+                channel_id = str(chat.id)  # Use numeric ID
                 if not username and chat.username:
                     username = '@' + chat.username
             except Exception as e:
+                logger.error(f"Cannot get channel info: {e}")
                 await message.answer(
-                    f"❌ Kanal ma'lumotlarini olishda xatolik:\n{str(e)}\n\n"
-                    "Bot kanalga admin sifatida qo'shilganligiga ishonch hosil qiling!",
+                    f"❌ Kanal ma'lumotlarini olishda xatolik!\n\n"
+                    f"Sabab: {str(e)}\n\n"
+                    f"Iltimos:\n"
+                    f"1. Kanal username to'g'ri ekanligini tekshiring\n"
+                    f"2. Botni kanalga admin qilib qo'shing\n"
+                    f"3. Qaytadan urinib ko'ring",
                     reply_markup=get_admin_keyboard()
                 )
                 await state.clear()
@@ -196,7 +210,8 @@ async def process_add_channel_input(message: Message, state: FSMContext):
             await message.answer(
                 f"✅ Kanal muvaffaqiyatli qo'shildi!\n\n"
                 f"📢 Nomi: {display_name}\n"
-                f"🆔 ID: <code>{channel_id}</code>",
+                f"🆔 ID: <code>{channel_id}</code>\n"
+                f"👤 Username: {username if username else 'Yo\'q'}",
                 parse_mode='HTML',
                 reply_markup=get_admin_keyboard()
             )
@@ -208,7 +223,8 @@ async def process_add_channel_input(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Error adding channel: {e}")
         await message.answer(
-            f"❌ Xatolik yuz berdi: {str(e)}",
+            f"❌ Xatolik yuz berdi: {str(e)}\n\n"
+            f"Iltimos botni kanalga admin qilib qo'shganingizga ishonch hosil qiling!",
             reply_markup=get_admin_keyboard()
         )
         await state.clear()

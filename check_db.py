@@ -24,11 +24,16 @@ for movie in movies:
     print(f"  - Kod: {movie[0]}, Nomi: {movie[1]}")
 
 # Check channels
-cursor.execute('SELECT username FROM channels')
+cursor.execute('SELECT id, username, title FROM channels')
 channels = cursor.fetchall()
 
 print(f"\n📢 Kanallar soni: {len(channels)}")
 for channel in channels:
-    print(f"  - {channel[0]}")
+    channel_id, username, title = channel
+    display_name = title if title else (username if username else channel_id)
+    print(f"  - {display_name}")
+    print(f"    🆔 ID: {channel_id}")
+    print(f"    👤 Username: {username if username else 'Yo\'q'}")
+    print()
 
 conn.close()

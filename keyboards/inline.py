@@ -9,10 +9,10 @@ def get_subscription_keyboard(channels: List[Tuple[str, str, str]], movie_code: 
     """
     buttons = []
     
-    # Add button for each channel
-    for channel in channels:
+    # Add button for each channel with numbered names
+    for index, channel in enumerate(channels, 1):
         channel_id, username, title = channel
-        display_name = title if title else (username if username else "Kanal")
+        display_name = f"Kanal {index}"
         
         # Create URL for the button
         if username:
